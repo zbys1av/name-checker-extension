@@ -20,7 +20,13 @@
     const valid = given[0] === expected[0] && given.every((x, i) => i === 0 || expected.slice(1).includes(x));
     return { state: valid ? 'ok' : 'mismatch', actual, expected: parts[0] };
   }
-  const api = { check, names };
+  function allowsReply(tabs) {
+    // No mode tabs: a standalone new-email composer.
+    if (!tabs.length) return true;
+    if (tabs.some(t => t.mode === 'note' && t.selected)) return false;
+    return tabs.some(t => t.mode === 'reply' && t.selected);
+  }
+  const api = { check, names, allowsReply };
   if (typeof module !== 'undefined') module.exports = api;
   else root.FreshsalesNameChecker = api;
 })(globalThis);

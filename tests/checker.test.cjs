@@ -18,3 +18,22 @@ for (const [label, text, state] of [
 test('subject', () => assert.equal(check(card, 'Oskar, Special bonus', true).state, 'mismatch'));
 test('missing card fails explicitly', () => assert.equal(check('', 'Hello Oscar,').state, 'unknown'));
 test('unicode and apostrophes', () => assert.equal(check('Élodie O’Neil', "Dear Élodie O'Neil,").state, 'ok'));
+
+const { allowsReply } = require('../extension/checker.js');
+test('Reply tab enables checking', () => assert.equal(allowsReply([
+  { mode: 'reply', selected: true }, { mode: 'note', selected: false }
+]), true));
+test('Private Note disables checking even with a greeting', () => assert.equal(allowsReply([
+  { mode: 'reply', selected: false }, { mode: 'note', selected: true }
+]), false));
+test('switch from note back to reply enables checking again', () => {
+  const tabs = [{ mode: 'reply', selected: false }, { mode: 'note', selected: true }];
+  assert.equal(allowsReply(tabs), false);
+  tabs[0].selected = true; tabs[1].selected = false;
+  assert.equal(allowsReply(tabs), true);
+});
+test('new email without mode tabs remains enabled', () => assert.equal(allowsReply([]), true));
+test('ambiguous transition does not check a note', () => {
+  assert.equal(allowsReply([{ mode: 'reply', selected: true }, { mode: 'note', selected: true }]), false);
+  assert.equal(allowsReply([{ mode: 'reply', selected: false }, { mode: 'note', selected: false }]), false);
+});
