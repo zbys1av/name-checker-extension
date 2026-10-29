@@ -1,111 +1,120 @@
 (() => {
   'use strict';
-  const editorSelector = '.fr-element[contenteditable="true"], .msg-reply-box[contenteditable="true"], [data-test-medium-editor-disable-wrapper] [contenteditable="true"]';
-  const subjectSelector = 'input[name="subject"], input[data-test-id*="subject"], input[placeholder="Subject"], input[aria-label="Subject"]';
-  const host = document.createElement('div');
-  host.id = 'freshsales-name-checker';
-  const shadow = host.attachShadow({ mode: 'open' });
-  shadow.innerHTML = `<style>:host{all:initial;position:fixed;bottom:65px;right:355px;z-index:2147483646;font:13px/1.5 system-ui,sans-serif;max-width:340px}section{background:#fff;color:#163449;border:1px solid #b8c9d4;border-left:4px solid #637b8a;border-radius:7px;padding:10px 13px;box-shadow:0 3px 14px #0002}section[data-state=mismatch]{border-left-color:#d14836;background:#fff5f3}section[data-state=ok]{border-left-color:#24935b}button{font:inherit;cursor:pointer;margin-top:6px}p{margin:3px 0;overflow-wrap:anywhere}</style><section role="status" aria-live="polite"><strong>Перевірка імені</strong><p></p><button type="button">Перевірити зараз</button></section>`;
-  const panel = shadow.querySelector('section');
-  const message = shadow.querySelector('p');
-  const indicator = document.createElement('div');
-  indicator.id = 'freshsales-name-checker-send';
-  const indicatorShadow = indicator.attachShadow({ mode: 'open' });
-  indicatorShadow.innerHTML = `<style>:host{all:initial;position:fixed;z-index:2147483646;transform:translate(-100%,-50%);font:12px/1.4 system-ui,sans-serif;pointer-events:auto}span{display:block;white-space:nowrap;border:1px solid #b8c9d4;border-radius:20px;padding:5px 9px;background:#f1f4f6;color:#405466;box-shadow:0 1px 4px #0001}span[data-state=ok]{color:#146c3e;background:#e8f7ee;border-color:#83cba0}span[data-state=mismatch]{color:#a72c20;background:#fff0ed;border-color:#e6a197}</style><span role="status" aria-live="polite" aria-atomic="true"></span>`;
-  const badge = indicatorShadow.querySelector('span');
-  let sendButton = null;
-  let positionFrame;
-  function positionIndicator() {
-    if (!sendButton?.isConnected || !visible(sendButton)) { indicator.remove(); return; }
-    const rect = sendButton.getBoundingClientRect();
-    if (rect.bottom < 0 || rect.top > innerHeight) { indicator.remove(); return; }
-    if (!indicator.isConnected) document.body.append(indicator);
-    indicator.style.left = `${Math.max(150, rect.left - 8)}px`;
-    indicator.style.top = `${rect.top + rect.height / 2}px`;
-  }
-  function schedulePosition() {
-    cancelAnimationFrame(positionFrame);
-    positionFrame = requestAnimationFrame(positionIndicator);
-  }
-  window.addEventListener('resize', schedulePosition, { passive: true });
-  document.addEventListener('scroll', schedulePosition, { passive: true, capture: true });
-  function updateIndicator(result, chosen) {
-    const candidates = [...(chosen ? replyContext(chosen).root : document).querySelectorAll('[data-test-fc-send-button="root"], .send-message .send, button, [role="button"], fw-button')]
-      .filter(el => visible(el) && (el.matches('[data-test-fc-send-button="root"], .send-message .send') || el.textContent.trim() === 'Send'));
-    const anchor = chosen?.ownerDocument.defaultView.frameElement || chosen;
-    const bounds = anchor?.getBoundingClientRect();
-    if (bounds) candidates.sort((a, b) => Math.abs(a.getBoundingClientRect().top - bounds.bottom) - Math.abs(b.getBoundingClientRect().top - bounds.bottom));
-    sendButton = candidates[0] || null;
-    const label = result.state === 'ok' ? '✓ Ім’я співпадає' : result.state === 'mismatch' ? '⚠ Ім’я не співпадає' : result.state === 'unknown' ? '? Немає картки' : '— Ім’я не перевірено';
-    if (badge.textContent !== label) badge.textContent = label;
-    badge.dataset.state = result.state;
-    indicator.title = message.textContent;
-    positionIndicator();
-  }
-  let timer;
-  const documents = new WeakSet();
+  const api = FreshsalesNameChecker;
+  const watched = new WeakSet();
   const frames = new WeakSet();
-  let active = null;
-  const visible = el => !!el.getClientRects().length;
-  function replyContext(editor) {
-    // The actual email editor can live in an about:blank Froala iframe.
-    const anchor = editor.ownerDocument.defaultView.frameElement || editor;
-    for (let root = anchor.parentElement; root; root = root.parentElement) {
-      const tabs = [...root.querySelectorAll('[data-test-reply-tab], [data-test-private-note-tab], .reply-tab, .private-note-tab')].filter(visible);
-      if (!tabs.length) continue;
-      const modes = tabs.map(tab => {
-        const link = tab.querySelector('[aria-selected]');
-        const selected = link?.getAttribute('aria-selected') ?? tab.getAttribute('aria-selected');
-        return {
-          mode: tab.matches('[data-test-private-note-tab], .private-note-tab') ? 'note' : 'reply',
-          selected: selected === null ? tab.classList.contains('active') : selected === 'true'
-        };
-      });
-      return { root, allowed: FreshsalesNameChecker.allowsReply(modes) };
+  const controls = new Map();
+  let timer;
+  const visible = el => {
+    if (!el || !el.getClientRects().length) return false;
+    const style = el.ownerDocument.defaultView.getComputedStyle(el);
+    return style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  function schedule() { clearTimeout(timer); timer = setTimeout(update, 180); }
+  function watch(root) {
+    if (!root || watched.has(root)) return;
+    watched.add(root);
+    root.addEventListener('input', schedule, true);
+    root.addEventListener('change', schedule, true);
+    root.addEventListener('click', schedule, true);
+    new MutationObserver(records => {
+      if (records.some(r => !r.target.closest?.('[data-name-checker-ui]'))) schedule();
+    }).observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'aria-selected', 'hidden', 'value'] });
+  }
+  function shadow(host) { const root = host?.shadowRoot; watch(root); return root; }
+  function isReply(composer) {
+    const scope = composer.closest('.message, #compose-message-container, #aw-reply-section-wrapper') || composer.parentElement;
+    const tabs = [...scope.querySelectorAll('[data-test-reply-tab], [data-test-private-note-tab]')].filter(visible);
+    return api.allowsReply(tabs.map(tab => {
+      const selected = tab.querySelector('[aria-selected]')?.getAttribute('aria-selected') ?? tab.getAttribute('aria-selected');
+      return { mode: tab.hasAttribute('data-test-private-note-tab') ? 'note' : 'reply', selected: selected === null ? tab.classList.contains('active') : selected === 'true' };
+    }));
+  }
+  function read(composer) {
+    const root = shadow(composer);
+    const header = shadow(root?.querySelector('fw-email-header'));
+    const subjectHost = header?.querySelector('#subject-field');
+    const subjectRoot = shadow(subjectHost);
+    const subjectInput = subjectRoot?.querySelector('input:not([type="hidden"])');
+    // Prefer the live native input. A serialized hidden input is only a fallback.
+    let subject = subjectInput?.value ?? subjectHost?.value ?? subjectHost?.querySelector('input[type="hidden"]')?.value;
+    if (!subjectHost) {
+      // Replies inherit the subject of this expanded conversation, never a sidebar/history item.
+      const conversation = composer.closest('.message.isExpanded') || composer.closest('.message');
+      subject = conversation?.querySelector('.pivot-view-header [data-test-id="topic-name"]')?.textContent?.trim();
     }
-    return { root: document.body, allowed: true };
-  }
-  function schedule() { clearTimeout(timer); timer = setTimeout(update, 250); }
-  function bind(doc) {
-    if (documents.has(doc)) return;
-    documents.add(doc);
-    doc.addEventListener('input', schedule, true);
-    doc.addEventListener('focusin', e => { if (e.target.matches?.('[contenteditable="true"],input')) active = e.target; schedule(); }, true);
-    // Recheck synchronously before a send action, without blocking or changing the draft.
-    doc.addEventListener('click', e => { if (e.target.closest?.('button,[role="button"],[role="tab"]')) { update(); schedule(); } }, true);
-  }
-  function update() {
-    clearTimeout(timer);
-    const editors = [...document.querySelectorAll(editorSelector)].filter(visible);
-    for (const frame of document.querySelectorAll('iframe.fr-iframe')) {
+    const editorRoot = shadow(root?.querySelector('fw-froala-editor'));
+    const frame = editorRoot?.querySelector('iframe.fr-iframe');
+    let body;
+    if (frame) {
       if (!frames.has(frame)) { frames.add(frame); frame.addEventListener('load', schedule); }
       try {
         const doc = frame.contentDocument;
-        if (!doc) continue;
-        bind(doc);
-        if (visible(frame)) editors.push(...doc.querySelectorAll('[contenteditable="true"],body[contenteditable]'));
-      } catch { /* Cross-origin frames cannot be inspected. */ }
+        watch(doc);
+        const editor = doc?.querySelector('[contenteditable="true"], body[contenteditable]');
+        // An uninitialised or inaccessible frame is uncertain, not a successful check.
+        if (editor) body = editor.innerText ?? editor.textContent;
+      } catch { /* No access: leave body unknown. */ }
+    } else {
+      const editor = editorRoot?.querySelector('.fr-element[contenteditable="true"]');
+      if (editor) body = editor.innerText ?? editor.textContent;
     }
-    const replyEditors = editors.filter(editor => replyContext(editor).allowed);
-    const subjects = [...document.querySelectorAll(subjectSelector)].filter(el => visible(el) && replyContext(el).allowed);
-    if (!replyEditors.length && !subjects.length) { host.remove(); indicator.remove(); sendButton = null; return; }
-    if (!host.isConnected) document.body.append(host);
-    const card = [...document.querySelectorAll('#data-contact-info .user-name-link, #data-contact-info [data-test-id="user-name-container"]')].find(visible);
-    const name = card?.textContent?.trim() || '';
-    const chosen = active && replyEditors.includes(active) ? active : replyEditors[0];
-    const results = [];
-    if (chosen) results.push(FreshsalesNameChecker.check(name, chosen.innerText || chosen.textContent || ''));
-    for (const subject of subjects) results.push(FreshsalesNameChecker.check(name, subject.value, true));
-    const result = results.find(r => r.state === 'mismatch') || results.find(r => r.state === 'ok') || results[0] || { state: 'unknown' };
-    panel.dataset.state = result.state;
-    message.textContent = result.state === 'mismatch' ? `Можлива помилка: «${result.actual}». Ім’я з картки: «${result.expected}». Перевірте перед надсиланням.` : result.state === 'ok' ? `Звертання відповідає картці: ${result.expected}.` : result.state === 'unknown' ? 'Не бачу імені в картці. Відкрийте Contact info.' : `Ім’я з картки: ${result.expected}. Не знайдено звертання для перевірки.`;
-    updateIndicator(result, chosen);
+    const footer = shadow(root?.querySelector('fw-froala-footer'));
+    const sendHost = footer?.querySelector('#btnSendEmail');
+    const send = shadow(sendHost)?.querySelector('button');
+    return { subject, body, sendHost, send };
   }
-  shadow.querySelector('button').addEventListener('click', update);
-  bind(document);
-  // Observe structural changes only: no interval, no full-page text scan.
-  new MutationObserver(records => {
-    if (records.some(r => r.target !== host && !host.contains(r.target) && r.target !== indicator && !indicator.contains(r.target))) schedule();
-  }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['aria-selected', 'class'] });
+  function restore(control) {
+    for (const [name, value, priority] of control.original) {
+      if (value) control.send.style.setProperty(name, value, priority);
+      else control.send.style.removeProperty(name);
+    }
+    control.ui.remove();
+  }
+  function controlFor(host, send) {
+    let control = controls.get(host);
+    if (control?.send === send) return control;
+    if (control) restore(control);
+    const ui = document.createElement('span');
+    ui.setAttribute('data-name-checker-ui', '');
+    const sr = ui.attachShadow({ mode: 'open' });
+    sr.innerHTML = `<style>:host{display:inline-flex;align-items:center;margin-right:8px;vertical-align:middle;font:12px/1.4 system-ui,sans-serif}button{font:inherit;border:1px solid #9aadb9;border-radius:5px;background:white;color:#163449;padding:6px 9px;cursor:pointer}span{max-width:220px;margin-right:7px;color:#163449}span[data-state=mismatch]{color:#a12620}span[data-state=unknown]{color:#805500}</style><span role="status" aria-live="polite"></span><button type="button">Перевірити ім’я</button>`;
+    sr.querySelector('button').addEventListener('click', update);
+    control = { send, ui, status: sr.querySelector('span'), original: ['background-color', 'border-color', 'color'].map(name => [name, send.style.getPropertyValue(name), send.style.getPropertyPriority(name)]) };
+    controls.set(host, control);
+    return control;
+  }
+  function update() {
+    clearTimeout(timer);
+    const used = new Set();
+    const card = [...document.querySelectorAll('#data-contact-info .user-name-link, #data-contact-info [data-test-id="user-name-container"]')].find(visible)?.textContent?.trim() || '';
+    for (const composer of document.querySelectorAll('fw-email-composer')) {
+      if (!visible(composer) || !isReply(composer)) continue;
+      const data = read(composer);
+      if (!data.send || !data.sendHost) continue;
+      const result = api.evaluate(card, data.subject, data.body);
+      const control = controlFor(data.sendHost, data.send);
+      used.add(data.sendHost);
+      if (!control.ui.isConnected) data.sendHost.before(control.ui);
+      const color = result.state === 'mismatch' ? '#c9342c' : result.state === 'unknown' ? '#f2c94c' : null;
+      if (color) {
+        data.send.style.setProperty('background-color', color, 'important');
+        data.send.style.setProperty('border-color', color, 'important');
+        data.send.style.setProperty('color', result.state === 'mismatch' ? '#ffffff' : '#332800', 'important');
+      } else {
+        for (const [name, value, priority] of control.original) {
+          if (value) data.send.style.setProperty(name, value, priority);
+          else data.send.style.removeProperty(name);
+        }
+      }
+      const text = result.state === 'ok' ? '✓ Subject і звертання збігаються' : result.state === 'mismatch' ? '⚠ Ім’я не збігається' : '? Потрібна перевірка';
+      if (control.status.textContent !== text) control.status.textContent = text;
+      control.status.dataset.state = result.state;
+      control.ui.title = result.details;
+      control.status.title = result.details;
+    }
+    for (const [host, control] of controls) if (!used.has(host)) { restore(control); controls.delete(host); }
+  }
+  watch(document);
   update();
 })();

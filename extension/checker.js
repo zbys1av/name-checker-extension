@@ -26,7 +26,18 @@
     if (tabs.some(t => t.mode === 'note' && t.selected)) return false;
     return tabs.some(t => t.mode === 'reply' && t.selected);
   }
-  const api = { check, names, allowsReply };
+  function evaluate(card, subject, body) {
+    // In replies the UI can prepend the mailbox label and Re:/Fwd:.
+    const cleanSubject = subject?.replace(/^(?:(?:re|fw|fwd):\s*)+/ig, '').replace(/^[^,\n]+\s[-–—]\s(?=[^,]+,)/u, '');
+    const fields = [
+      { label: 'Subject', result: check(card, cleanSubject || '', true) },
+      { label: 'Перший рядок', result: check(card, body || '') }
+    ];
+    const state = fields.some(f => f.result.state === 'mismatch') ? 'mismatch' : fields.every(f => f.result.state === 'ok') ? 'ok' : 'unknown';
+    const details = fields.map(({ label, result: r }) => `${label}: ${r.state === 'ok' ? `«${r.actual}» — збіг` : r.state === 'mismatch' ? `«${r.actual}», очікується «${r.expected}»` : 'не вдалося визначити ім’я'}`).join('\n');
+    return { state, details };
+  }
+  const api = { check, names, allowsReply, evaluate };
   if (typeof module !== 'undefined') module.exports = api;
   else root.FreshsalesNameChecker = api;
 })(globalThis);

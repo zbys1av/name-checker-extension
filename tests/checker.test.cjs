@@ -37,3 +37,21 @@ test('ambiguous transition does not check a note', () => {
   assert.equal(allowsReply([{ mode: 'reply', selected: true }, { mode: 'note', selected: true }]), false);
   assert.equal(allowsReply([{ mode: 'reply', selected: false }, { mode: 'note', selected: false }]), false);
 });
+
+const { evaluate } = require('../extension/checker.js');
+test('both fields must match before Send keeps its default color', () => {
+  assert.equal(evaluate(card, 'Oscar, Bonus', 'Hello Oscar,').state, 'ok');
+  assert.equal(evaluate(card, 'Oscar, Bonus', '').state, 'unknown');
+  assert.equal(evaluate(card, '', 'Hello Oscar,').state, 'unknown');
+});
+test('a mismatch wins over an unknown field', () => {
+  assert.equal(evaluate(card, 'James, Bonus', '').state, 'mismatch');
+  assert.equal(evaluate(card, undefined, 'Hello James,').state, 'mismatch');
+});
+test('reply subject supports mailbox prefix and Re', () => {
+  assert.equal(evaluate(card, 'Re: VIP Success Team - Oscar, Special Bonus', 'Hello Oscar,').state, 'ok');
+});
+test('missing card and inaccessible body stay uncertain', () => {
+  assert.equal(evaluate('', 'Oscar, Bonus', 'Hello Oscar,').state, 'unknown');
+  assert.equal(evaluate(card, 'Oscar, Bonus', undefined).state, 'unknown');
+});

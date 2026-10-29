@@ -1,0 +1,18 @@
+<!-- Minimal, anonymized structure from both supplied Freshsales snapshots.
+     about:blank iframe contents are NOT preserved in saved pages; tests inject drafts. -->
+<div id="data-contact-info"><span class="user-name-link">Oscar example@example.com Clarke</span></div>
+<div class="message isExpanded">
+  <div class="pivot-view-header"><span data-test-id="topic-name">VIP Success Team - Oscar, Special Bonus</span></div>
+  <div id="aw-reply-section-wrapper">
+    <li data-test-reply-tab class="reply-tab active"><a role="tab" aria-selected="true">Reply</a></li>
+    <li data-test-private-note-tab class="private-note-tab"><a role="tab" aria-selected="false">Private Note</a></li>
+    <fw-email-composer id="email-composer"><template shadowrootmode="open">
+      <fw-email-header><template shadowrootmode="open">
+        <fw-input id="subject-field"><template shadowrootmode="open"><input type="text" value="Oscar, Special Bonus"></template><input type="hidden" value="Wrong, stale value"></fw-input>
+      </template></fw-email-header>
+      <fw-froala-editor><template shadowrootmode="open"><div class="fr-wrapper"><iframe class="fr-iframe" src="about:blank"></iframe></div></template></fw-froala-editor>
+      <fw-froala-footer><template shadowrootmode="open"><div class="email-footer-send"><fw-button id="btnSendEmail"><template shadowrootmode="open"><button class="fw-btn fw-btn--primary" style="background-color: rgb(22, 52, 73)">Send</button></template></fw-button></div></template></fw-froala-footer>
+    </template></fw-email-composer>
+    <div class="hide-medium-editor"><div class="msg-reply-box" contenteditable="true">Hello Wrong,</div><div data-test-fc-send-button="root">Send</div></div>
+  </div>
+</div>
