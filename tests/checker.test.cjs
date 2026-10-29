@@ -55,3 +55,8 @@ test('missing card and inaccessible body stay uncertain', () => {
   assert.equal(evaluate('', 'Oscar, Bonus', 'Hello Oscar,').state, 'unknown');
   assert.equal(evaluate(card, 'Oscar, Bonus', undefined).state, 'unknown');
 });
+test('screenshot regression: mailbox before Re and matching Hey Kirsty', () => {
+  assert.equal(evaluate('Kirsty kirsty@example.com', 'VIP Success Team - Re: Kirsty, Welcome To The Bronze Club ⭐', 'Hey Kirsty,\nThe bonus is waiting.').state, 'ok');
+  assert.equal(evaluate('Kirsty', 'Re: VIP Success Team - Fwd: Re: Kirsty, Welcome', 'Hey Kirsty,').state, 'ok');
+  assert.equal(evaluate('Kirsty', 'VIP Success Team - Re: Oscar, Welcome', 'Hey Kirsty,').state, 'mismatch');
+});

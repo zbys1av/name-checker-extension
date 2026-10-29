@@ -28,7 +28,13 @@
   }
   function evaluate(card, subject, body) {
     // In replies the UI can prepend the mailbox label and Re:/Fwd:.
-    const cleanSubject = subject?.replace(/^(?:(?:re|fw|fwd):\s*)+/ig, '').replace(/^[^,\n]+\s[-–—]\s(?=[^,]+,)/u, '');
+    let cleanSubject = subject?.trim();
+    // Mailbox labels and reply prefixes may occur in either order, or repeat.
+    let previous;
+    do {
+      previous = cleanSubject;
+      cleanSubject = cleanSubject?.replace(/^(?:(?:re|fw|fwd):\s*)+/ig, '').replace(/^[^,\n]+\s[-–—]\s(?=[^,]+,)/u, '').trim();
+    } while (cleanSubject !== previous);
     const fields = [
       { label: 'Subject', result: check(card, cleanSubject || '', true) },
       { label: 'Перший рядок', result: check(card, body || '') }

@@ -69,6 +69,8 @@
       if (value) control.send.style.setProperty(name, value, priority);
       else control.send.style.removeProperty(name);
     }
+    clearTimeout(control.animationTimer);
+    control.textStyle.remove();
     control.ui.remove();
   }
   function controlFor(host, send) {
@@ -78,9 +80,24 @@
     const ui = document.createElement('span');
     ui.setAttribute('data-name-checker-ui', '');
     const sr = ui.attachShadow({ mode: 'open' });
-    sr.innerHTML = `<style>:host{display:inline-flex;align-items:center;margin-right:8px;vertical-align:middle;font:12px/1.4 system-ui,sans-serif}button{font:inherit;border:1px solid #9aadb9;border-radius:5px;background:white;color:#163449;padding:6px 9px;cursor:pointer}span{max-width:220px;margin-right:7px;color:#163449}span[data-state=mismatch]{color:#a12620}span[data-state=unknown]{color:#805500}</style><span role="status" aria-live="polite"></span><button type="button">Перевірити ім’я</button>`;
-    sr.querySelector('button').addEventListener('click', update);
-    control = { send, ui, status: sr.querySelector('span'), original: ['background-color', 'border-color', 'color'].map(name => [name, send.style.getPropertyValue(name), send.style.getPropertyPriority(name)]) };
+    sr.innerHTML = `<style>:host{display:inline-flex;align-items:center;margin-right:8px;vertical-align:middle;font:12px/1.4 system-ui,sans-serif}button{font:inherit;border:1px solid #9aadb9;border-radius:5px;background:white;color:#163449;padding:6px 9px;cursor:pointer}button[aria-busy="true"]::before{content:"";display:inline-block;width:10px;height:10px;margin-right:6px;border:2px solid #b9cbd6;border-top-color:#163449;border-radius:50%;vertical-align:-2px;animation:checking .65s linear infinite}@keyframes checking{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){button[aria-busy="true"]::before{animation:none}}span{max-width:220px;margin-right:7px;color:#163449}span[data-state=mismatch]{color:#a12620}span[data-state=unknown]{color:#805500}</style><span role="status" aria-live="polite"></span><button type="button">Перевірити ім’я</button>`;
+    const recheck = sr.querySelector('button');
+    recheck.addEventListener('click', () => {
+      update();
+      // Keep visual feedback visible even when local checking finishes instantly.
+      if (!ui.isConnected) return;
+      clearTimeout(control.animationTimer);
+      recheck.setAttribute('aria-busy', 'true');
+      recheck.textContent = 'Перевіряю…';
+      control.animationTimer = setTimeout(() => {
+        recheck.setAttribute('aria-busy', 'false');
+        recheck.textContent = 'Перевірити ім’я';
+      }, 600);
+    });
+    const textStyle = document.createElement('style');
+    textStyle.setAttribute('data-name-checker-ui', '');
+    send.getRootNode().append(textStyle);
+    control = { send, ui, textStyle, animationTimer: null, status: sr.querySelector('span'), original: ['background-color', 'background-image', 'border-color', 'color'].map(name => [name, send.style.getPropertyValue(name), send.style.getPropertyPriority(name)]) };
     controls.set(host, control);
     return control;
   }
@@ -99,6 +116,7 @@
       const color = result.state === 'mismatch' ? '#c9342c' : result.state === 'unknown' ? '#f2c94c' : null;
       if (color) {
         data.send.style.setProperty('background-color', color, 'important');
+        data.send.style.setProperty('background-image', 'none', 'important');
         data.send.style.setProperty('border-color', color, 'important');
         data.send.style.setProperty('color', result.state === 'mismatch' ? '#ffffff' : '#332800', 'important');
       } else {
@@ -107,6 +125,10 @@
           else data.send.style.removeProperty(name);
         }
       }
+      // Freshworks styles the internal label and slotted light-DOM text separately.
+      const foreground = result.state === 'unknown' ? '#332800' : '#ffffff';
+      const textCSS = `:host{color:${foreground}!important}button,button *{color:${foreground}!important}::slotted(span){color:${foreground}!important}`;
+      if (control.textStyle.textContent !== textCSS) control.textStyle.textContent = textCSS;
       const text = result.state === 'ok' ? '✓ Subject і звертання збігаються' : result.state === 'mismatch' ? '⚠ Ім’я не збігається' : '? Потрібна перевірка';
       if (control.status.textContent !== text) control.status.textContent = text;
       control.status.dataset.state = result.state;

@@ -76,3 +76,32 @@ test('existing Reply reads its own conversation subject; Note restores Send and 
     assert.equal(c.send.style.backgroundColor, 'rgb(22, 52, 73)');
   } finally { c.dom.window.close(); }
 });
+test('Send contrast, background gradient restoration, and manual check feedback', async () => {
+  const c = setup(true);
+  try {
+    const originalImage = c.send.style.backgroundImage;
+    assert.ok(originalImage.includes('linear-gradient'));
+    const style = () => c.send.getRootNode().querySelector('style[data-name-checker-ui]');
+    assert.match(style().textContent, /button,button \*\{color:#ffffff!important/);
+    assert.match(style().textContent, /::slotted\(span\)/);
+    c.body('No greeting'); await tick();
+    assert.equal(c.send.style.backgroundImage, 'none');
+    assert.match(style().textContent, /color:#332800!important/);
+    c.body('Hello Wrong,'); await tick();
+    assert.equal(c.send.style.backgroundImage, 'none');
+    assert.match(style().textContent, /color:#ffffff!important/);
+    c.body('Hello Oscar,'); await tick();
+    assert.equal(c.send.style.backgroundImage, originalImage);
+    assert.match(style().textContent, /color:#ffffff!important/);
+    const button = c.sendHost.previousElementSibling.shadowRoot.querySelector('button');
+    button.click();
+    assert.equal(button.getAttribute('aria-busy'), 'true');
+    assert.equal(button.textContent, 'Перевіряю…');
+    await new Promise(resolve => setTimeout(resolve, 700));
+    assert.equal(button.getAttribute('aria-busy'), 'false');
+    assert.equal(button.textContent, 'Перевірити ім’я');
+    c.w.document.querySelector('[data-test-private-note-tab] a').setAttribute('aria-selected', 'true'); await tick();
+    assert.equal(style(), null);
+    assert.equal(c.send.style.backgroundImage, originalImage);
+  } finally { c.dom.window.close(); }
+});

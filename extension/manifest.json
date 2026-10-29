@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Freshsales Name Checker",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Локальна перевірка імені клієнта у звертанні та темі листа.",
   "content_scripts": [{
     "matches": ["https://bbq1-465157612863820669.myfreshworks.com/crm/messaging/*"],
