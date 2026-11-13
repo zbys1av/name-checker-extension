@@ -26,7 +26,15 @@
     if (tabs.some(t => t.mode === 'note' && t.selected)) return false;
     return tabs.some(t => t.mode === 'reply' && t.selected);
   }
-  function evaluate(card, subject, body) {
+  // Phrases that must always be a link when mentioned in the body.
+  const linkPhrases = ['bonus tab', 'limits section', 'bonus section', 'account limits', 'limits tab'];
+  function missingLinks(body, links) {
+    const flat = s => (s || '').toLowerCase().replace(/\s+/g, ' ');
+    const text = flat(body), anchors = links.map(l => flat(l.text));
+    return linkPhrases.filter(p => text.includes(p) && !anchors.some(a => a.includes(p)));
+  }
+  // checkSubject is true only for new emails; replies inherit the subject.
+  function evaluate(card, subject, body, checkSubject = true) {
     // In replies the UI can prepend the mailbox label and Re:/Fwd:.
     let cleanSubject = subject?.trim();
     // Mailbox labels and reply prefixes may occur in either order, or repeat.
@@ -36,14 +44,40 @@
       cleanSubject = cleanSubject?.replace(/^(?:(?:re|fw|fwd):\s*)+/ig, '').replace(/^[^,\n]+\s[-–—]\s(?=[^,]+,)/u, '').trim();
     } while (cleanSubject !== previous);
     const fields = [
-      { label: 'Subject', result: check(card, cleanSubject || '', true) },
+      ...(checkSubject ? [{ label: 'Subject', result: check(card, cleanSubject || '', true) }] : []),
       { label: 'Перший рядок', result: check(card, body || '') }
     ];
     const state = fields.some(f => f.result.state === 'mismatch') ? 'mismatch' : fields.every(f => f.result.state === 'ok') ? 'ok' : 'unknown';
     const details = fields.map(({ label, result: r }) => `${label}: ${r.state === 'ok' ? `«${r.actual}» — збіг` : r.state === 'mismatch' ? `«${r.actual}», очікується «${r.expected}»` : 'не вдалося визначити ім’я'}`).join('\n');
     return { state, details };
   }
-  const api = { check, names, allowsReply, evaluate };
+  // Mailbox/project label that Freshsales puts in front of the subject: "VIP Success Team - Re: Kirsty, ...".
+  function projectOf(subject) {
+    let s = (subject || '').trim(), previous;
+    do { previous = s; s = s.replace(/^(?:(?:re|fw|fwd):\s*)+/ig, '').trim(); } while (s !== previous);
+    const m = s.match(/^([^,\n]+?)\s[-–—]\s(?=[^,]+,)/u);
+    return m ? m[1].trim() : '';
+  }
+  const hostOf = href => { try { return new URL(href).hostname.replace(/^www\./i, '').toLowerCase(); } catch { return ''; } };
+  // links: [{text, href}] -> same items plus `issues` (empty array when nothing suspicious).
+  function analyzeLinks(links) {
+    return links.map(({ text, href }) => {
+      const issues = [];
+      const h = (href || '').trim();
+      if (!h || h === '#' || /^javascript:/i.test(h)) issues.push('порожнє посилання');
+      else if (/^http:\/\//i.test(h)) issues.push('не https');
+      const shown = (text || '').trim();
+      if (/^(?:https?:\/\/|www\.)\S+$/i.test(shown) && hostOf(/^www\./i.test(shown) ? 'https://' + shown : shown) !== hostOf(h)) issues.push('текст і адреса різні');
+      return { text: shown, href: h, issues };
+    });
+  }
+  const sites = [['WinSpirit', /win[\s_-]?spirit/i], ['LuckyHills', /lucky[\s_-]?hills/i], ['Charmius', /charmius/i]];
+  // Canonical names of known sites mentioned anywhere in the given strings.
+  function sitesIn(...texts) {
+    const all = texts.join('\n');
+    return sites.filter(([, re]) => re.test(all)).map(([name]) => name);
+  }
+  const api = { check, names, allowsReply, evaluate, projectOf, analyzeLinks, missingLinks, sitesIn };
   if (typeof module !== 'undefined') module.exports = api;
   else root.FreshsalesNameChecker = api;
 })(globalThis);
